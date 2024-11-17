@@ -1,0 +1,17 @@
+{
+  "name": "ctrlcenterbot",
+  "version": "1.0.0",
+  "description": "Discord bot for the CtrlCenter server",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Yoshino, Maploop",
+  "license": "ISC",
+  "dependencies": {
+    "ctrlcenterbot": "file:",
+    "discord": "^0.8.2",
+    "discord.js": "^14.15.3",
+    "dotenv": "^16.4.5"
+  }
+}
