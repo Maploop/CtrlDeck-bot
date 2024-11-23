@@ -2,18 +2,19 @@ const {
   SlashCommandBuilder,
   SlashCommandSubcommandBuilder,
   ActionRowBuilder,
-  ActionRow,
   TextInputBuilder,
-  TextInputStyle, Collection
+  TextInputStyle,
+  EmbedBuilder,
 } = require("discord.js");
 const { Events, ModalBuilder } = require("discord.js");
 const PlaylistsData = require("../../_archive/PLD_S.json");
+const fs = require("node:fs");
 
-let savedPlaylists = []
+let savedPlaylists = [];
 
 for (key of Object.keys(PlaylistsData)) {
-  let n = PlaylistsData[key]['name'];
-	savedPlaylists.push({name: n, value: key})
+  let n = PlaylistsData[key]["name"];
+  savedPlaylists.push({ name: n, value: key });
 }
 
 console.log("Playlist added: " + savedPlaylists);
@@ -35,7 +36,8 @@ module.exports = {
           opt
             .setName("playlist_name")
             .setDescription("Name of the playlist you want to view")
-            .setRequired(true).addChoices(savedPlaylists),
+            .setRequired(true)
+            .addChoices(savedPlaylists),
         ),
     ),
   async execute(interaction) {
@@ -66,15 +68,89 @@ module.exports = {
           .setCustomId("spotify_url")
           .setLabel("Playlist Link (Spotify)")
           .setStyle(TextInputStyle.Short);
-        
-          const nameRow = new ActionRowBuilder().addComponents(nameInput);
-          const colorRow = new ActionRowBuilder().addComponents(colorInput);
-          const thumbnailRow = new ActionRowBuilder().addComponents(thumbnailInput);
-          const urlRow = new ActionRowBuilder().addComponents(urlInput);
-        
-          modal.addComponents(nameRow, colorRow, thumbnailRow, urlRow);
+
+        const nameRow = new ActionRowBuilder().addComponents(nameInput);
+        const colorRow = new ActionRowBuilder().addComponents(colorInput);
+        const thumbnailRow = new ActionRowBuilder().addComponents(
+          thumbnailInput,
+        );
+        const urlRow = new ActionRowBuilder().addComponents(urlInput);
+
+        modal.addComponents(nameRow, colorRow, thumbnailRow, urlRow);
         await interaction.showModal(modal);
-        await interaction.deferReply();
+        await interaction
+          .awaitModalSubmit({
+            filter: (modalInteraction) =>
+              modalInteraction.customId === "m_save_playlist",
+            time: 60_000,
+          })
+          .then((modalInter) => {
+            const name = modalInter.fields.getTextInputValue("name_input");
+            const color = modalInter.fields.getTextInputValue("color_input");
+            const thumbnail =
+              modalInter.fields.getTextInputValue("thumbnail_input");
+            const url = modalInter.fields.getTextInputValue("spotify_url");
+            const timestamp = Date.now();
+
+            let nameFixed = name
+              .replaceAll(" ", "_")
+              .replaceAll("'", "")
+              .toLowerCase();
+
+            PlaylistsData[nameFixed] = {};
+            PlaylistsData[nameFixed]["name"] = name;
+            PlaylistsData[nameFixed]["color"] = color;
+            PlaylistsData[nameFixed]["thumbnail"] = thumbnail;
+            PlaylistsData[nameFixed]["timestamp"] = timestamp;
+            PlaylistsData[nameFixed]["url"] = url;
+
+            const jsonDataConverted = JSON.stringify(PlaylistsData, null, 2);
+
+            fs.writeFileSync(
+              "./_archive/PLD_S.json",
+              jsonDataConverted,
+              (err) => {
+                if (err) {
+                  console.log(err);
+                }
+              },
+            );
+
+            const embed = new EmbedBuilder()
+              .setColor(color)
+              .setTitle(name)
+              .setURL(url)
+              .setThumbnail(thumbnail)
+              .setDescription("View Playlist: " + url)
+              .setTimestamp(timestamp);
+            modalInter.reply({
+              content: "**PLAYLIST SAVED.**",
+              embeds: [embed],
+            });
+          })
+          .catch((err) => {
+            console.log(err);
+            interaction.reply("Error occurred.");
+          });
+        break;
+      }
+      case "view": {
+        const playlist_name = interaction.options.getString("playlist_name");
+        let data = PlaylistsData[playlist_name];
+        const embed = new EmbedBuilder()
+          .setColor(data["color"])
+          .setTitle(data["name"])
+          .setURL(data["url"])
+          .setThumbnail(data["thumbnail"])
+          .setDescription("View Playlist: " + data["url"])
+          .setTimestamp(data["timestamp"]);
+
+        await interaction.reply("Loading...");
+        await interaction.editReply({ content: "DONE", embeds: [embed] });
+        break;
+      }
+      default: {
+        await interaction.reply("Invalid SUBCMD.");
         break;
       }
     }
