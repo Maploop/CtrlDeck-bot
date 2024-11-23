@@ -4,14 +4,19 @@ const { token, clientId, guildId } = require('./config.json');
 const fs = require('node:fs');
 const path = require('node:path');
 
+const PlayListData = require("./_archive/PLD_S.json");
+
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages,
     GatewayIntentBits.MessageContent] });
 
 client.commands = new Collection();
+client.playlistsSaved = new Collection();
 const commands = [];
 // Grab all the command folders from the commands directory you created earlier
 const foldersPath = path.join(__dirname, 'commands');
 const commandFolders = fs.readdirSync(foldersPath);
+
+
 
 for (const folder of commandFolders) {
 	const commandsPath = path.join(foldersPath, folder);
@@ -49,7 +54,7 @@ const rest = new REST().setToken(token);
 
 client.on(Events.InteractionCreate, async interaction => {
 	if (!interaction.isChatInputCommand()) return;
-	await interaction.deferReply();
+	// await interaction.deferReply();
 
 	const command = interaction.client.commands.get(interaction.commandName);
 
@@ -72,70 +77,48 @@ client.on(Events.InteractionCreate, async interaction => {
 
 client.on(Events.InteractionCreate, async interaction => {
 	if (!interaction.isModalSubmit()) return;
-	if (interaction.customId === "request_data_access_form")
-	{
-		// Get the data entered by the user
-		
-		const favoriteColor = interaction.fields.getTextInputValue('nameInput');
-		const hobbies = interaction.fields.getTextInputValue('intentionsInput');
+	if (interaction.isModalSubmit()) {
+		// Access customId directly
+		if (interaction.customId === 'm_save_playlist') {
+		  const name = interaction.fields.getTextInputValue('name_input');
+		  const color = interaction.fields.getTextInputValue('color_input');
+		  const thumbnail = interaction.fields.getTextInputValue('thumbnail_input');
+		  const url = interaction.fields.getTextInputValue('spotify_url');
+		  const timestamp = Date.now();
+		  
+		  let nameFixed = name.replaceAll(" ", "_").replaceAll("'", "").toLowerCase();
 
-		const confirm = new ButtonBuilder()
-			.setCustomId('btn_confirm_' + interaction.user.id)
-			.setLabel('Grant Access')
-			.setStyle(ButtonStyle.Success);
+		  PlayListData[nameFixed] = {};
+		  PlayListData[nameFixed]['name'] = name;
+		  PlayListData[nameFixed]['color'] = color;
+		  PlayListData[nameFixed]['thumbnail'] = thumbnail;
+		  PlayListData[nameFixed]['timestamp'] = timestamp;
+		  PlayListData[nameFixed]['url'] = url;
 
-		const cancel = new ButtonBuilder()
-			.setCustomId('btn_cancel_' + interaction.user.id)
-			.setLabel('Deny Access & Notify')
-			.setStyle(ButtonStyle.Secondary);
+		  const jsonDataConverted = JSON.stringify(PlayListData, null, 2);
 
-		const cancel2 = new ButtonBuilder()
-			.setCustomId('btn_cancel2')
-			.setLabel(`Deny Access & Don't Notify`)
-			.setStyle(ButtonStyle.Danger);
+		  fs.writeFileSync('./_archive/PLD_S.json', jsonDataConverted, (err) => {
+			if (err) {
+				console.log(err);
+			}
+		  })
 
-			const row = new ActionRowBuilder()
-			.addComponents(confirm, cancel, cancel2);
-
-		const embed = new EmbedBuilder()
-		.setTitle("Data Access Request").setAuthor({name: `${interaction.user.displayName} (@${interaction.user.username})`, iconURL: interaction.user.avatarURL()}).addFields({name: "Name", value: favoriteColor}, {name: "Intentions", value: hobbies});
-		client.channels.cache.get('1274018742375813190').send({embeds: [embed], components: [row]});
-
-		await interaction.reply("Request sent successfully.");
-	}
+		  const embed = new EmbedBuilder()
+		  	.setColor(color)
+			.setTitle(name)
+			.setURL(url)
+			.setThumbnail(thumbnail)
+			.setDescription("View Playlist: " + url)
+			.setTimestamp(timestamp);
+		  interaction.channel.send({content: "**PLAYLIST SAVED.**", embeds: [embed]});
+		  // await interaction.reply({content: "Done!", ephemeral: true});
+		}
+	  }
 });
 
 client.on(Events.InteractionCreate, async interaction => {
 	if (!interaction.isButton()) return;
 	console.log(interaction.customId);
-	if (interaction.customId.startsWith("btn_"))
-	{
-		console.log('running here too')
-		var actualID = interaction.customId.replace("btn_", "");
-		if (actualID.startsWith("confirm_"))
-		{
-			var userId = actualID.replace("confirm_", "");
-			var role= client.guilds.cache.get(guildId).roles.cache.get('1274025102459011146');
-			var user = client.guilds.cache.get(guildId).members.cache.get(userId);
-			user.roles.add(role);
-			user.send("You have been granted data access in CtrlDeck™.");
-
-			await interaction.reply("Done. [0x0000_1 NOTIFY_ON]");
-		}
-
-		if (actualID.startsWith("cancel_"))
-		{
-			var userId = actualID.replace("cancel_", "");
-			var user = client.guilds.cache.get(guildId).members.cache.get(userId);
-			user.send("You have been denied data access in CtrlDeck™.");
-			await interaction.reply("Done. [0x0000_0 NOTIFY_ON]");
-		}
-
-		if (actualID.startsWith("cancel2"))
-		{
-			await interaction.reply("Done. [0x0000_0 NOTIFY_OFF]");
-		}
-	}
 });
 
 client.once(Events.ClientReady, readyClient => {
