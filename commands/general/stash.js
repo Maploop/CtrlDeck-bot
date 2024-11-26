@@ -89,6 +89,7 @@ module.exports = {
           embeds: [embed],
           ephemeral: true,
         });
+        interaction.channel.send({ephemeral: true, content: "**<!> -> NOTE:** Stash databases will be moved to a MongoDB system soon. Your current data might be lost."});
         break;
       }
       case "insert": {

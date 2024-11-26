@@ -9,6 +9,7 @@ const {
 const { Events, ModalBuilder } = require("discord.js");
 const PlaylistsData = require("../../_archive/PLD_S.json");
 const fs = require("node:fs");
+const { MongoDocHandle } = require("../../mongodb-maploop");
 
 let savedPlaylists = [];
 
@@ -97,24 +98,15 @@ module.exports = {
               .replaceAll("'", "")
               .toLowerCase();
 
-            PlaylistsData[nameFixed] = {};
-            PlaylistsData[nameFixed]["name"] = name;
-            PlaylistsData[nameFixed]["color"] = color;
-            PlaylistsData[nameFixed]["thumbnail"] = thumbnail;
-            PlaylistsData[nameFixed]["timestamp"] = timestamp;
-            PlaylistsData[nameFixed]["url"] = url;
-
-            const jsonDataConverted = JSON.stringify(PlaylistsData, null, 2);
-
-            fs.writeFileSync(
-              "./_archive/PLD_S.json",
-              jsonDataConverted,
-              (err) => {
-                if (err) {
-                  console.log(err);
-                }
-              },
-            );
+            const playlist = new MongoDocHandle("playlists", nameFixed);
+            const dataConstructed = {
+              name: name,
+              color: color,
+              thumbnail: thumbnail,
+              timestamp: timestamp,
+              url: url,
+            };
+            playlist.bulkSet(dataConstructed);
 
             const embed = new EmbedBuilder()
               .setColor(color)
@@ -136,7 +128,8 @@ module.exports = {
       }
       case "view": {
         const playlist_name = interaction.options.getString("playlist_name");
-        let data = PlaylistsData[playlist_name];
+        const playlist = new MongoDocHandle("playlists", playlist_name);
+        let data = playlist.getDocument();
         const embed = new EmbedBuilder()
           .setColor(data["color"])
           .setTitle(data["name"])
