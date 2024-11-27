@@ -1,9 +1,15 @@
-const { Client, Collection, Events, GatewayIntentBits } = require("discord.js");
+const {
+  Client,
+  EmbedBuilder,
+  Collection,
+  Events,
+  GatewayIntentBits,
+} = require("discord.js");
 const { token, clientId, guildId } = require("./config.json");
 const fs = require("node:fs");
 const path = require("node:path");
 const CommandDeployer = require("./deploy-commands");
-const MongoDBManager = require("./mongodb-maploop");
+const { MongoDocHandle } = require("./mongodb-maploop");
 
 const client = new Client({
   intents: [
@@ -71,8 +77,42 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isButton()) return;
-  console.log(interaction.customId);
+  if (!interaction.isStringSelectMenu()) return;
+  if (!interaction.customId.startsWith("c_view_pl-")) return;
+
+  const selected_value = interaction.values[0];
+  await interaction.deferReply();
+  const playlist = new MongoDocHandle("playlists", selected_value);
+  if (!(await playlist.getDocument())) {
+    const em2 = new EmbedBuilder()
+      .setTitle('No playlist with ID "' + playlist_name + '" was found :(')
+      .setDescription(
+        "Use `/playlist view` with no arguments to view all the available playlists.",
+      )
+      .setTimestamp()
+      .setColor("#ad2d31");
+    await interaction.followUp({ embeds: [em2] });
+    return;
+  }
+
+  let data = await playlist.getDocument();
+  const author = interaction.client.users.cache.get(data["author"]);
+  const embed = new EmbedBuilder()
+    .setColor(data["color"])
+    .setTitle(data["name"])
+    .setURL(data["url"])
+    .setThumbnail(data["thumbnail"])
+    .addFields([
+      { name: "Description", value: data["description"] },
+      { name: "URL", value: data["url"] },
+    ])
+    .setAuthor({
+      name: "By " + author.username,
+      iconURL: author.displayAvatarURL(),
+    })
+    .setTimestamp(data["timestamp"]);
+
+  await interaction.followUp({ embeds: [embed] });
 });
 
 client.once(Events.ClientReady, (readyClient) => {

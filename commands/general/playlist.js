@@ -5,20 +5,14 @@ const {
   TextInputBuilder,
   TextInputStyle,
   EmbedBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
 } = require("discord.js");
 const { Events, ModalBuilder } = require("discord.js");
 const PlaylistsData = require("../../_archive/PLD_S.json");
 const fs = require("node:fs");
 const { MongoDocHandle } = require("../../mongodb-maploop");
-
-let savedPlaylists = [];
-
-for (key of Object.keys(PlaylistsData)) {
-  let n = PlaylistsData[key]["name"];
-  savedPlaylists.push({ name: n, value: key });
-}
-
-console.log("Playlist added: " + savedPlaylists);
+const util = require("../../utility");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -35,10 +29,9 @@ module.exports = {
         .setDescription("View a previously saved playlist")
         .addStringOption((opt) =>
           opt
-            .setName("playlist_name")
-            .setDescription("Name of the playlist you want to view")
-            .setRequired(true)
-            .addChoices(savedPlaylists),
+            .setName("id")
+            .setDescription("ID of the playlist you want to view")
+            .setRequired(false),
         ),
     ),
   async execute(interaction) {
@@ -46,13 +39,19 @@ module.exports = {
 
     switch (subCommand) {
       case "save": {
+        const modal_id = util.generateUUID();
         const modal = new ModalBuilder()
-          .setCustomId("m_save_playlist")
+          .setCustomId(modal_id)
           .setTitle("Save Playlist");
 
         const nameInput = new TextInputBuilder()
           .setCustomId("name_input")
           .setLabel("Playlist Name")
+          .setStyle(TextInputStyle.Short);
+
+        const descInput = new TextInputBuilder()
+          .setCustomId("desc_input")
+          .setLabel("Description")
           .setStyle(TextInputStyle.Short);
 
         const colorInput = new TextInputBuilder()
@@ -71,28 +70,30 @@ module.exports = {
           .setStyle(TextInputStyle.Short);
 
         const nameRow = new ActionRowBuilder().addComponents(nameInput);
+        const descRow = new ActionRowBuilder().addComponents(descInput);
         const colorRow = new ActionRowBuilder().addComponents(colorInput);
         const thumbnailRow = new ActionRowBuilder().addComponents(
           thumbnailInput,
         );
         const urlRow = new ActionRowBuilder().addComponents(urlInput);
 
-        modal.addComponents(nameRow, colorRow, thumbnailRow, urlRow);
+        modal.addComponents(nameRow, descRow, colorRow, thumbnailRow, urlRow);
         await interaction.showModal(modal);
         await interaction
           .awaitModalSubmit({
             filter: (modalInteraction) =>
-              modalInteraction.customId === "m_save_playlist",
-            time: 60_000,
+              modalInteraction.customId === modal_id,
+            time: 300_000,
           })
           .then((modalInter) => {
             const name = modalInter.fields.getTextInputValue("name_input");
+            const desc = modalInter.fields.getTextInputValue("desc_input");
+
             const color = modalInter.fields.getTextInputValue("color_input");
             const thumbnail =
               modalInter.fields.getTextInputValue("thumbnail_input");
             const url = modalInter.fields.getTextInputValue("spotify_url");
             const timestamp = Date.now();
-
             let nameFixed = name
               .replaceAll(" ", "_")
               .replaceAll("'", "")
@@ -102,18 +103,27 @@ module.exports = {
             const dataConstructed = {
               name: name,
               color: color,
+              description: desc,
               thumbnail: thumbnail,
               timestamp: timestamp,
+              author: interaction.user.id,
               url: url,
             };
             playlist.bulkSet(dataConstructed);
-
+            const author = interaction.user;
             const embed = new EmbedBuilder()
               .setColor(color)
               .setTitle(name)
               .setURL(url)
               .setThumbnail(thumbnail)
-              .setDescription("View Playlist: " + url)
+              .addFields([
+                { name: "Description", value: desc },
+                { name: "URL", value: url },
+              ])
+              .setAuthor({
+                name: "By " + author.username,
+                iconURL: author.displayAvatarURL(),
+              })
               .setTimestamp(timestamp);
             modalInter.reply({
               content: "**PLAYLIST SAVED.**",
@@ -122,20 +132,85 @@ module.exports = {
           })
           .catch((err) => {
             console.log(err);
-            interaction.reply("Error occurred.");
+            interaction.followUp("interaction timed out.");
           });
         break;
       }
       case "view": {
-        const playlist_name = interaction.options.getString("playlist_name");
+        const playlist_name = interaction.options.getString("id");
+        if (!playlist_name) {
+          await interaction.deferReply();
+          const embed = new EmbedBuilder()
+            .setColor("#32a852")
+            .setTitle("Select a playlist to view!")
+            .setTimestamp();
+
+          const playlist_list = await new MongoDocHandle(
+            "playlists",
+            "placebo",
+          ).grab_all();
+
+          if (playlist_list.length <= 0) {
+            const em2 = new EmbedBuilder()
+              .setTitle("No playlists have been saved yet :(")
+              .setTimestamp()
+              .setColor("#ad2d31");
+            await interaction.followUp({ embeds: [em2] });
+            return;
+          }
+
+          const select_id = util.generateUUID();
+          const select = new StringSelectMenuBuilder()
+            .setCustomId("c_view_pl-" + select_id)
+            .setPlaceholder("Select a playlist!");
+
+          const opt = [];
+          for (doc of playlist_list) {
+            const at = interaction.client.users.cache.get(doc["author"]);
+            opt.push(
+              new StringSelectMenuOptionBuilder()
+                .setLabel(doc["name"] + " (by " + at.username + ")")
+                .setDescription(doc["description"])
+                .setValue(doc["id"]),
+            );
+            console.log("putting in " + doc["name"]);
+          }
+          select.addOptions(opt);
+          const row = new ActionRowBuilder().addComponents(select);
+
+          await interaction.followUp({ embeds: [embed], components: [row] });
+          return;
+        }
         const playlist = new MongoDocHandle("playlists", playlist_name);
-        let data = playlist.getDocument();
+        if (!(await playlist.getDocument())) {
+          const em2 = new EmbedBuilder()
+            .setTitle(
+              'No playlist with ID "' + playlist_name + '" was found :(',
+            )
+            .setDescription(
+              "Use `/playlist view` with no arguments to view all the available playlists.",
+            )
+            .setTimestamp()
+            .setColor("#ad2d31");
+          await interaction.reply({ embeds: [em2] });
+          return;
+        }
+
+        let data = await playlist.getDocument();
+        const author = interaction.client.users.cache.get(data["author"]);
         const embed = new EmbedBuilder()
           .setColor(data["color"])
           .setTitle(data["name"])
           .setURL(data["url"])
           .setThumbnail(data["thumbnail"])
-          .setDescription("View Playlist: " + data["url"])
+          .addFields([
+            { name: "Description", value: data["description"] },
+            { name: "URL", value: data["url"] },
+          ])
+          .setAuthor({
+            name: "By " + author.username,
+            iconURL: author.displayAvatarURL(),
+          })
           .setTimestamp(data["timestamp"]);
 
         await interaction.reply("Loading...");

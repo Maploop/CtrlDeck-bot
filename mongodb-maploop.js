@@ -1,9 +1,9 @@
 const { MognoClient, ServerApiVersion, MongoClient } = require("mongodb");
+const { mongo_uri } = require("./config.json");
 
-const uri = "mongodb://localhost:27017/";
-
+// WARNING: I moved the MongoDB uri to the config.json file.
 var selectedCollection = "none";
-const client = new MongoClient(uri, {
+const client = new MongoClient(mongo_uri, {
   serverApi: {
     version: ServerApiVersion.v1,
     strict: true,
@@ -30,6 +30,7 @@ class MongoDocHandle {
 
   async getDocument() {
     try {
+      await client.connect();
       const database = client.db("abigboi_bot");
       const col = database.collection(this.collection);
 
@@ -39,7 +40,23 @@ class MongoDocHandle {
       const found = await col.findOne(query, options);
       return found;
     } finally {
-      client.close();
+      await client.close();
+    }
+  }
+
+  async grab_all() {
+    try {
+      await client.connect();
+      const db = client.db("abigboi_bot");
+      const col = db.collection(this.collection);
+
+      const result = await col.find().toArray();
+      console.log(
+        `-> ${result.length} document(s) found in collection ${this.collection}.`,
+      );
+      return result;
+    } finally {
+      await client.close();
     }
   }
 
