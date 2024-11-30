@@ -2,14 +2,13 @@ const {
   SlashCommandBuilder,
   EmbedBuilder,
   ActionRowBuilder,
-  ActionRow,
   TextInputBuilder,
   TextInputStyle,
   SlashCommandSubcommandBuilder,
+  ModalBuilder,
 } = require("discord.js");
-const { Events, ModalBuilder } = require("discord.js");
 const stashData = require("./../../_archive/STASH.json");
-const fs = require("node:fs");
+const { MongoDocHandle } = require("../../mongodb-maploop");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -37,19 +36,21 @@ module.exports = {
     switch (sub) {
       case "view": {
         authorId = interaction.user.id;
-        if (!stashData[authorId]) {
+        const docData = new MongoDocHandle("stash", authorId);
+        const aDocument = await docData.getDocument();
+        if (!aDocument) {
           embed = new EmbedBuilder()
             .setColor("Red")
             .setTimestamp()
-            .setTitle("No data found for you");
-          await interaction.reply({ embeds: embed });
+            .setTitle("<!> NO DATA FOUND.");
+          await interaction.reply({ embeds: [embed] });
           return;
         }
         updateCacheNeccessary =
           !stashData[authorId]["CACHE"] ||
           interaction.options.getBoolean("update_cache");
 
-        entryCount = Object.keys(stashData[authorId]).length;
+        entryCount = Object.keys(aDocument).length - 2;
         embed = new EmbedBuilder()
           .setColor("Aqua")
           .setTitle('Stash data for "' + authorId + '"')
@@ -64,7 +65,8 @@ module.exports = {
         await interaction.deferReply({ ephemeral: true });
 
         const fieldList = [];
-        for (key of Object.keys(stashData[authorId])) {
+        for (key of Object.keys(aDocument)) {
+          if (key.startsWith("_id") || key.startsWith("id")) continue;
           keyForTitle = key;
           if (key.endsWith("/")) keyForTitle = key.slice(0, -1);
 
@@ -72,13 +74,12 @@ module.exports = {
           title = keySplit[keySplit.length - 1];
 
           desc = "";
-          for (altKey of Object.keys(stashData[authorId][key])) {
+          for (altKey of Object.keys(aDocument[key])) {
             if (altKey.startsWith("INTERNAL__")) continue;
 
-            desc +=
-              "• " + altKey + ": " + stashData[authorId][key][altKey] + "\n";
+            desc += "• " + altKey + ": " + aDocument[key][altKey] + "\n";
           }
-          desc += `-> **[[VIEW]](${key})**`;
+          desc += `**->** **[[VIEW]](${key.replaceAll(",", ".")})**`;
 
           fieldList.push({ name: title, value: desc, inline: true });
         }
@@ -89,7 +90,6 @@ module.exports = {
           embeds: [embed],
           ephemeral: true,
         });
-        interaction.channel.send({ephemeral: true, content: "**<!> -> NOTE:** Stash databases will be moved to a MongoDB system soon. Your current data might be lost."});
         break;
       }
       case "insert": {
@@ -128,24 +128,17 @@ module.exports = {
               stashData[authorId] = {};
             }
 
-            stashData[authorId][link] = JSON.parse(data);
-            stashData[authorId][link]["INTERNAL__url"] = link;
+            const aDoc = new MongoDocHandle("stash", authorId);
 
-            const jsonDataConverted = JSON.stringify(stashData, null, 2);
+            link = link.replaceAll(".", ",");
+            aDoc[link] = JSON.parse(data);
+            aDoc[link]["INTERNAL__url"] = link;
 
-            fs.writeFileSync(
-              "./_archive/STASH.json",
-              jsonDataConverted,
-              (err) => {
-                if (err) {
-                  console.log(err);
-                }
-              },
-            );
+            aDoc.bulkSet({ [link]: JSON.parse(data) });
 
             emebed = new EmbedBuilder()
               .setColor("DarkGreen")
-              .setTitle("ACTION COMPLETE.")
+              .setTitle("-> DONE.")
               .setTimestamp();
 
             modalInter.reply({
@@ -154,7 +147,10 @@ module.exports = {
           })
           .catch((err) => {
             console.log(err);
-            interaction.reply("Error occurred.");
+            interaction.reply({
+              content: "Interaction timed out",
+              ephemeral: true,
+            });
           });
 
         break;
